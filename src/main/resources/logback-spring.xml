@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  [WHY] CLAUDE.md §7.4 — JSON 포맷 + MDC(traceId/registrationNumber/reportId).
+        local 프로파일은 가독성 위해 콘솔 텍스트, 그 외 프로파일은 JSON.
+  [CONSIDER] ELK/Loki 연동 시 logstash-encoder 의 customFields 추가.
+-->
+<configuration>
+
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="report-platform"/>
+
+    <!-- ───────── Local 프로파일: 사람이 읽기 좋은 텍스트 ───────── -->
+    <springProfile name="local">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-},%X{registrationNumber:-},%X{reportId:-}] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ───────── docker / 운영 / test 프로파일: JSON ───────── -->
+    <springProfile name="!local">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>registrationNumber</includeMdcKeyName>
+                <includeMdcKeyName>reportId</includeMdcKeyName>
+                <customFields>{"app":"${appName}"}</customFields>
+                <fieldNames>
+                    <timestamp>timestamp</timestamp>
+                    <message>message</message>
+                    <thread>thread</thread>
+                    <logger>logger</logger>
+                    <level>level</level>
+                </fieldNames>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- 라이브러리 노이즈 다이얼다운 -->
+    <logger name="org.apache.kafka.clients.NetworkClient" level="ERROR"/>
+    <logger name="org.apache.kafka.clients.consumer.internals.ConsumerCoordinator" level="WARN"/>
+
+</configuration>

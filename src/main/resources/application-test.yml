@@ -1,0 +1,24 @@
+# ──────────────────────────────────────────────────────────────
+# 통합 테스트: Testcontainers가 동적으로 DB/Kafka 띄움.
+# datasource.url, kafka.bootstrap-servers는 @DynamicPropertySource로 주입.
+# [WHY] CLAUDE.md §8.3 — H2/Embedded Kafka 금지.
+# ──────────────────────────────────────────────────────────────
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+  flyway:
+    enabled: true
+
+  kafka:
+    consumer:
+      group-id: report-platform-test
+      auto-offset-reset: earliest
+
+logging:
+  level:
+    root: WARN
+    com.kcd.report: INFO
+    org.testcontainers: INFO

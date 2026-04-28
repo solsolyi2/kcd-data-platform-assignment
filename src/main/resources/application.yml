@@ -1,0 +1,104 @@
+# ──────────────────────────────────────────────────────────────
+# 공통 설정 — 모든 프로파일에서 적용
+# 프로파일별 override:  application-{local|docker|test}.yml
+# [WHY] CLAUDE.md §6 — 시간 UTC, 시크릿 환경변수
+# ──────────────────────────────────────────────────────────────
+spring:
+  application:
+    name: report-platform
+
+  profiles:
+    # 기본 활성 프로파일은 외부 변수로 (없으면 local).
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+  jpa:
+    open-in-view: false              # [WHY] OSIV 비활성 — 트랜잭션 경계 명확화 (CLAUDE.md §4.5)
+    hibernate:
+      ddl-auto: validate             # 스키마는 Flyway 가 관리
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  kafka:
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all                      # [WHY] 이벤트 유실 불가 — CLAUDE.md §1.2
+      properties:
+        enable.idempotence: true     # [WHY] At-Least-Once 전제, 멱등 producer로 중복 최소화
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      enable-auto-commit: false      # [WHY] 수동 커밋 — 처리 성공 후 commit
+      auto-offset-reset: earliest
+      properties:
+        spring.json.trusted.packages: "com.kcd.report.*"
+        # [CONSIDER] 운영에서는 isolation.level=read_committed 권장 (트랜잭션 producer 도입 시).
+    listener:
+      ack-mode: manual_immediate
+      missing-topics-fatal: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: never
+    include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+# ──────────────────────────────────────────────────────────────
+# 애플리케이션 커스텀 설정
+# ──────────────────────────────────────────────────────────────
+app:
+  outbox:
+    poll-interval-ms: 1000           # [WHY] OutboxPoller 폴링 주기 — 1초
+    batch-size: 100                  # 한 번에 처리할 이벤트 수
+  webhook:
+    timeout-ms: 3000
+    max-retries: 5
+  pipeline:
+    collection:
+      timeout-seconds: 30
+    generation:
+      timeout-seconds: 30
+
+logging:
+  level:
+    root: INFO
+    com.kcd.report: DEBUG
+    org.springframework.kafka: INFO
+    org.hibernate.SQL: WARN

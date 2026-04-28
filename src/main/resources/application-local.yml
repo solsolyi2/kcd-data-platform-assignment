@@ -1,0 +1,32 @@
+# ──────────────────────────────────────────────────────────────
+# 로컬 개발: 호스트에서 직접 ./gradlew bootRun
+# DB/Kafka는 docker compose 로 띄운 컨테이너 (localhost로 접근)
+# ──────────────────────────────────────────────────────────────
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/kcd_report
+    username: ${DB_USERNAME:kcd}
+    password: ${DB_PASSWORD:kcd_local_pw}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 5000
+      max-lifetime: 1800000
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: report-platform-local
+
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    # [WHY] 로컬은 SQL/파라미터 보고 디버그하기 좋게.
+    org.hibernate.orm.jdbc.bind: TRACE
