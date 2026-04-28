@@ -49,68 +49,154 @@ Claude 및 모든 협업자가 따라야 할 **프로젝트 지침**입니다.
 
 ---
 
-## 3. 패키지 구조 (헥사고날 라이트)
+## 3. 패키지 구조 (Hexagonal — Ports & Adapters)
+
+엄격한 헥사고날(Ports & Adapters). 의존성 방향은 **adapter → application → domain** 단방향만 허용.
+도메인은 어떤 외부 의존성(Spring/JPA/Jackson 등)도 가지지 않는 **순수 Kotlin**.
+
+### 3.1 레이어 트리 (com.kcd.report)
 
 ```
-com.kcd.report
+src/main/kotlin/com/kcd/report/
 ├── ReportApplication.kt
 │
-├── common              # 공통 유틸 / 에러 / 응답 포맷
-│   ├── response        # ApiResponse, ErrorResponse
-│   ├── exception       # 도메인 예외 + GlobalExceptionHandler
-│   └── config          # Jackson, Async, Kafka 설정 등
+├── config/                            # 횡단 설정 (Jackson/Async/Kafka topics/MDC filter/WebMvc)
 │
-├── auth                # 인증 (비즈니스 로직과 분리)
-│   ├── ApiKeyInterceptor.kt
-│   ├── AuthenticatedPartnerArgumentResolver.kt
-│   ├── @AuthenticatedPartner 어노테이션
-│   └── ApiKeyService.kt
+├── adapter/                           # 외부 세계와의 어댑터
+│   ├── partner/
+│   │   └── jpaOut/                    # Driven Adapter (영속성)
+│   │       ├── entity/                # PartnerJpaEntity, PartnerApiKeyJpaEntity, PartnerPolicyJpaEntity
+│   │       ├── repository/            # *JpaRepository (Spring Data)
+│   │       ├── service/               # *JpaAdapter — application 의 OutPort 구현체
+│   │       └── mapper/                # entity ↔ domain model
+│   │
+│   ├── report/
+│   │   ├── restIn/                    # Driving Adapter — REST
+│   │   │   ├── controller/            # ReportQueryController
+│   │   │   ├── dto/                   # 요청/응답 DTO
+│   │   │   └── mapper/                # DTO ↔ application command/result
+│   │   └── jpaOut/                    # entity / repository / service / mapper
+│   │
+│   ├── pipeline/
+│   │   ├── restIn/                    # ReportRequestController, ReportStatusController
+│   │   ├── kafkaIn/                   # Driving Adapter — Kafka Consumer
+│   │   │   ├── listener/              # @KafkaListener 빈
+│   │   │   └── mapper/                # Kafka payload ↔ application command
+│   │   └── jpaOut/                    # ReportRequest 영속성
+│   │
+│   ├── outbox/
+│   │   ├── jpaOut/                    # OutboxEvent / ProcessedEvent 영속성
+│   │   ├── kafkaOut/                  # Driven Adapter — KafkaTemplate 호출 어댑터
+│   │   └── scheduler/                 # OutboxPollerScheduler (@Scheduled)
+│   │
+│   ├── webhook/
+│   │   ├── kafkaIn/                   # WebhookConsumer (report.notify 구독)
+│   │   ├── httpOut/                   # Driven Adapter — RestClient 로 파트너 HTTP 호출
+│   │   └── jpaOut/                    # WebhookDelivery 이력
+│   │
+│   └── querylog/
+│       └── jpaOut/                    # ReportQueryLog 영속성
 │
-├── partner             # 파트너사 / API Key / 정책
-│   ├── domain
-│   ├── infrastructure  # JpaRepository
-│   └── application     # PartnerPolicyService
+├── application/                       # 유스케이스 + 포트 정의
+│   ├── partner/
+│   │   ├── service/                   # AuthenticatePartnerUseCase, GetPartnerPolicyUseCase
+│   │   ├── port/
+│   │   │   ├── inbound/               # InPort — UseCase 인터페이스
+│   │   │   └── outbound/              # OutPort — 영속성/외부 시스템 인터페이스
+│   │   ├── dto/                       # Command / Query / Result (포트 입출력 타입)
+│   │   ├── mapper/                    # 내부 변환 헬퍼 (필요할 때)
+│   │   └── exception/                 # application 레벨 예외 (없으면 생략)
+│   ├── report/
+│   ├── pipeline/                      # ReportRequest UseCase + Collection/Generation/Notification 핸들러
+│   ├── outbox/                        # OutboxAppender InPort + OutPort (Kafka publish)
+│   ├── webhook/                       # WebhookSendUseCase + WebhookDeliveryOutPort
+│   └── querylog/                      # QueryLogRecorder UseCase
 │
-├── report              # 사업 리포트 + 지표 (조회 도메인)
-│   ├── domain          # BusinessReport, ReportMetric
-│   ├── infrastructure
-│   ├── application     # ReportQueryService
-│   └── interfaces      # ReportQueryController
-│
-├── pipeline            # 리포트 생성 파이프라인 (핵심)
-│   ├── domain          # ReportRequest, PipelineStatus(상태머신)
-│   ├── application
-│   │   ├── ReportRequestService           # POST /reports
-│   │   ├── ReportStatusService            # GET /reports/{id}/status
-│   │   ├── DataCollectionHandler          # 수집 단계
-│   │   ├── ReportGenerationHandler        # 생성 단계
-│   │   └── NotificationDispatcher         # 알림 fan-out
-│   ├── infrastructure
-│   │   ├── kafka       # Producer/Consumer
-│   │   └── jpa
-│   └── interfaces      # ReportRequestController
-│
-├── outbox              # Transactional Outbox (이벤트 일관성 핵심)
-│   ├── OutboxEvent.kt
-│   ├── OutboxRepository.kt
-│   ├── OutboxAppender.kt   # 도메인 트랜잭션 안에서 호출
-│   └── OutboxPoller.kt     # 별도 스케줄러
-│
-├── webhook             # 파트너사 Webhook 발송
-│   ├── WebhookConsumer.kt
-│   ├── WebhookSender.kt
-│   └── WebhookDelivery.kt  # 발송 이력/재시도 카운트
-│
-└── querylog            # 조회 이력 (비동기 적재)
-    ├── ReportQueryLog.kt
-    └── QueryLogRecorder.kt
+└── domain/                            # 순수 도메인 (Spring/JPA 어노테이션 절대 X)
+    ├── partner/
+    │   ├── CLAUDE.md                  # (선택) 도메인 상세 명세
+    │   ├── model/                     # Partner, PartnerApiKey, PartnerPolicy (pure Kotlin)
+    │   ├── vo/                        # ApiKey 등 값 객체
+    │   └── enums/                     # MetricType
+    ├── report/
+    │   ├── model/                     # BusinessReport, ReportMetric
+    │   ├── vo/                        # RegistrationNumber (validation 포함)
+    │   └── enums/
+    ├── pipeline/
+    │   ├── model/                     # ReportRequest (상태머신 메서드 포함)
+    │   ├── enums/                     # ReportRequestStatus
+    │   └── event/                     # 도메인 이벤트 페이로드 정의
+    ├── outbox/
+    │   └── model/                     # OutboxEvent, ProcessedEvent (도메인 모델)
+    ├── webhook/
+    │   ├── model/                     # WebhookDelivery
+    │   └── enums/                     # WebhookDeliveryStatus
+    └── querylog/
+        └── model/                     # ReportQueryLog
 ```
 
-**원칙:**
-- `domain`은 다른 레이어를 의존하지 않는다 (순수 Kotlin).
-- `interfaces`(컨트롤러)는 `application`만 호출한다.
-- `infrastructure`는 외부 시스템(JPA, Kafka, HTTP) 어댑터.
-- 도메인 간 직접 호출 금지. 필요하면 이벤트 또는 application 레이어 거쳐서.
+> **공통(common) 위치**: `ApiResponse`, `DomainException`, `ErrorCode`, `BaseTimestamp`(JPA용 — `adapter/`).
+> 응답/예외/에러코드는 도메인 영역의 가치를 표현하므로 `domain/common/` 또는 `application/common/` 에.
+> 진짜 횡단 인프라(Filter/Interceptor/Async/Config)는 `config/`.
+
+### 3.2 4가지 포트 역할
+
+| 포트 | 위치 | 역할 |
+|---|---|---|
+| **InPort**  | `application/{도메인}/port/inbound/`  | UseCase 인터페이스 (어댑터가 호출) |
+| **OutPort** | `application/{도메인}/port/outbound/` | 영속성/외부시스템 인터페이스 (UseCase 가 호출) |
+| **Driving Adapter** | `adapter/{도메인}/{rest|kafka}In/` | 외부 입력 → InPort 호출 |
+| **Driven Adapter**  | `adapter/{도메인}/{jpa|kafka|http}Out/` | OutPort 구현 → 외부 시스템 호출 |
+
+### 3.3 새 기능 추가 순서
+
+1. `domain/{도메인}/model/` — 도메인 모델 (또는 VO/enum/event)
+2. `application/{도메인}/port/inbound/` — InPort 인터페이스
+3. `application/{도메인}/port/outbound/` — OutPort 인터페이스
+4. `application/{도메인}/service/` — UseCase 구현 (도메인 + 포트 의존)
+5. `adapter/{도메인}/jpaOut/` — JPA Entity + Repository + OutPort 구현 + Mapper
+6. `adapter/{도메인}/restIn/` 또는 `kafkaIn/` — Driving Adapter (Controller / Consumer)
+
+### 3.4 의존성 방향 (단방향만 허용)
+
+```
+adapter ──→ application ──→ domain
+```
+
+**역방향 / 동일 레벨 우회 절대 금지:**
+
+- domain → application/adapter 의 어떤 클래스도 import 금지.
+- application → adapter 의 구현 클래스 import 금지. (포트 인터페이스만 의존)
+- adapter 끼리 직접 호출 금지. 다른 도메인을 부르고 싶으면 application 의 InPort 를 호출.
+
+#### domain 패키지에서 금지
+
+- Spring 어노테이션: `@Component`, `@Service`, `@Repository`, `@Configuration`, `@Bean`, `@Autowired` …
+- JPA 어노테이션: `@Entity`, `@Id`, `@Column`, `@Table`, `@OneToMany` …
+- Jackson / Web 어노테이션: `@JsonInclude`, `@JsonProperty`, `@RequestBody` …
+- application/adapter 의 클래스 import.
+
+도메인 모델은 **JPA 와 무관한 순수 Kotlin** 이며, JPA 매핑은 `adapter/{도메인}/jpaOut/entity/{Domain}JpaEntity.kt` 에 별도 클래스로 둔다. 둘 사이는 `adapter/{도메인}/jpaOut/mapper/{Domain}EntityMapper.kt` 가 변환.
+
+### 3.5 명명 규약
+
+- 도메인 모델: `Partner`, `BusinessReport`, `ReportRequest` (접미사 없음).
+- JPA 엔티티: `PartnerJpaEntity`, `BusinessReportJpaEntity` (`*JpaEntity` 접미사).
+- Repository: `PartnerJpaRepository` (Spring Data 인터페이스).
+- OutPort 구현: `PartnerJpaAdapter` (`*Adapter` 접미사).
+- InPort 인터페이스: `AuthenticatePartnerUseCase` (`*UseCase` 접미사).
+- 서비스(InPort 구현): `AuthenticatePartnerService` (`*Service` 접미사).
+- Mapper: `PartnerEntityMapper` (도메인 ↔ entity), `ReportResponseMapper` (DTO ↔ application result).
+
+### 3.6 체크리스트 (PR/커밋 전)
+
+- [ ] 새 파일이 올바른 레이어(adapter/application/domain)에 위치한다.
+- [ ] 도메인별 패키지 안에 있다.
+- [ ] InPort/OutPort 인터페이스가 application 레이어에 있다.
+- [ ] domain 패키지에 Spring/JPA/Jackson 어노테이션이 없다.
+- [ ] application 에서 adapter 패키지를 import 하지 않는다.
+- [ ] 의존성 방향이 adapter → application → domain 이다.
+- [ ] 같은 도메인에 JPA 엔티티 ↔ 도메인 모델 매퍼가 있다.
 
 ---
 
@@ -359,7 +445,7 @@ docker compose --profile app up --build
   - 핵심 설계 결정 + 트레이드오프 설명
   - 테스트 API Key 안내
   - 동작 시나리오 예시 (curl 또는 HTTP 파일)
-- [ ] ERD (이미지 또는 dbdiagram.io 링크) 또는 DDL
+- [ ] DDL
 - [ ] `docker-compose.yml`로 서버 + Kafka가 한 번에 기동
 - [ ] 통합 테스트가 `./gradlew test`로 통과
 - [ ] `CLAUDE.md` (이 문서) — 협업/AI 개발 지침으로 함께 제출
