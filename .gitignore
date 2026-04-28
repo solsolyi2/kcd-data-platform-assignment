@@ -12,6 +12,10 @@ build/
 # ───────────────────────────────────────────────
 *.class
 *.jar
+# [WHY] gitignore는 마지막 매칭 규칙이 이긴다.
+#        앞서 위 Gradle 섹션의 `!gradle/wrapper/gradle-wrapper.jar` 예외가
+#        아래 `*.jar`에 의해 무효화되므로, 여기서 다시 negate 한다.
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
