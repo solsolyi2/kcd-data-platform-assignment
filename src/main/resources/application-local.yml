@@ -4,7 +4,8 @@
 # ──────────────────────────────────────────────────────────────
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/kcd_report
+    # [WHY] docker-compose 에서 호스트 포트 충돌 회피로 15432 매핑 (compose 주석 참조).
+    url: jdbc:postgresql://localhost:15432/kcd_report
     username: ${DB_USERNAME:kcd}
     password: ${DB_PASSWORD:kcd_local_pw}
     driver-class-name: org.postgresql.Driver
@@ -15,7 +16,8 @@ spring:
       max-lifetime: 1800000
 
   kafka:
-    bootstrap-servers: localhost:9092
+    # [WHY] PLAINTEXT_HOST 리스너(29092) — 호스트에서 접속 시 advertised=localhost:29092.
+    bootstrap-servers: localhost:29092
     consumer:
       group-id: report-platform-local
 
