@@ -1,0 +1,42 @@
+# [WHY] ktlint 1.3.x 의 일부 strict 룰은 자동 fix와 충돌하거나 가독성을 해친다.
+#        프로젝트에서 가치 있는 핵심 룰(no-wildcard-imports, indent, no-unused-imports 등)은 유지하고,
+#        과도한 multiline 강제 룰은 비활성화.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 140
+ij_kotlin_imports_layout = *,java.**,javax.**,kotlin.**,^
+
+# ── ktlint 표준 룰 — 본 프로젝트에 맞춰 일부 비활성화 ────────────
+# class 1줄/2줄 강제 자동 fix가 우리 코드 스타일과 충돌. 가독성은 코드리뷰에서 판단.
+ktlint_standard_class-signature = disabled
+ktlint_standard_function-signature = disabled
+# .name(...).partitions(...).build() 같은 빌더 체인을 한 줄로 두고 싶을 때가 있음.
+ktlint_standard_chain-method-continuation = disabled
+# `val x = expr ?: other` 같은 표현에 newline 강제하지 않음.
+ktlint_standard_multiline-expression-wrapping = disabled
+# enum trailing semicolon 은 의미 있어 허용 (Kotlin 컴파일러도 무시 안 함).
+ktlint_standard_no-semi = disabled
+
+# ── 켜둘 핵심 룰 ──────────────────────────────────────────────
+ktlint_standard_no-wildcard-imports = enabled
+ktlint_standard_no-unused-imports = enabled
+ktlint_standard_final-newline = enabled
+ktlint_standard_indent = enabled
+ktlint_standard_trailing-comma-on-call-site = enabled
+ktlint_standard_trailing-comma-on-declaration-site = enabled
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
